@@ -4240,7 +4240,6 @@
         esc(u.email || u.uid) +
         "</strong></p>" +
         '<div class="btn-row">' +
-        '<button class="btn small" data-action="cloud-push-now">Push now</button>' +
         '<button class="btn small danger" data-action="cloud-signout">Sign out</button>' +
         "</div>"
       );
@@ -4564,10 +4563,6 @@
           toast("Signed out", "", 1800);
         });
         return;
-      case "cloud-push-now":
-        window.Cloud.schedulePush(state);
-        toast("Push queued", "ok", 1800);
-        return;
       case "export-json":
         exportJSON();
         return;
@@ -4726,11 +4721,35 @@
 
   function registerServiceWorker() {
     if (!("serviceWorker" in navigator)) return;
-    if (location.protocol === "file:") return; // SW does not work from file://
+    if (location.protocol === "file:") return;
+
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", function () {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("sw.js").catch(() => {
-        /* silent: offline support is a bonus, not a requirement */
-      });
+      navigator.serviceWorker
+        .register("sw.js")
+        .then(function (reg) {
+          reg.update().catch(function () {});
+          if (reg.waiting) {
+            reg.waiting.postMessage({ type: "SKIP_WAITING" });
+          }
+          if (reg.installing) {
+            reg.installing.addEventListener("statechange", function () {
+              if (
+                this.state === "installed" &&
+                navigator.serviceWorker.controller
+              ) {
+                this.postMessage({ type: "SKIP_WAITING" });
+              }
+            });
+          }
+        })
+        .catch(function () {});
     });
   }
 

@@ -8,6 +8,8 @@
 (function () {
   "use strict";
 
+  window.CLOUD_VERSION = "v3-network-first";
+
   const firebaseConfig = {
     apiKey: "AIzaSyAzCeBkIxB9HF6pMj-8lXoig5p-cAswFuQ",
     authDomain: "workout-tracker-dcc65.firebaseapp.com",
@@ -85,7 +87,7 @@
     clearTimeout(pushTimer);
     pushTimer = setTimeout(function () {
       pushStateNow();
-    }, 1500);
+    }, 400);
   }
 
   async function pushStateNow() {

@@ -1,11 +1,13 @@
 /* Workout Tracker — service worker
-   Cache-first app shell so the app works offline after the first load. */
-const CACHE_NAME = "workout-tracker-v1";
+   Network-first: always fetches fresh files when online.
+   Falls back to cache only when offline. */
+const CACHE_NAME = "workout-tracker-v2";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
+  "./cloud.js",
   "./manifest.json",
   "./icon.svg",
 ];
@@ -32,6 +34,12 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
+});
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   if (request.method !== "GET") return;
@@ -40,24 +48,21 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request)
-        .then((response) => {
-          if (
-            response &&
-            response.status === 200 &&
-            response.type === "basic"
-          ) {
-            const copy = response.clone();
-            caches
-              .open(CACHE_NAME)
-              .then((cache) => cache.put(request, copy))
-              .catch(() => {});
-          }
-          return response;
-        })
-        .catch(() => caches.match("./index.html"));
-    }),
+    fetch(request)
+      .then((response) => {
+        if (response && response.status === 200 && response.type === "basic") {
+          const copy = response.clone();
+          caches
+            .open(CACHE_NAME)
+            .then((cache) => cache.put(request, copy))
+            .catch(() => {});
+        }
+        return response;
+      })
+      .catch(() => {
+        return caches
+          .match(request)
+          .then((cached) => cached || caches.match("./index.html"));
+      }),
   );
 });
