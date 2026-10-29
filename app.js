@@ -564,6 +564,18 @@
       : null;
     if (s.activeWorkout && s.activeWorkout.status !== "active")
       s.activeWorkout = null;
+    // One-time cleanup: workout snapshots used to duplicate exercise media.
+    // Media lives in the exercise library only — strip any copies from workouts.
+    const strip = (w) => {
+      if (!w || !Array.isArray(w.exercises)) return;
+      w.exercises.forEach((we) => {
+        if (we && Object.prototype.hasOwnProperty.call(we, "media")) {
+          delete we.media;
+        }
+      });
+    };
+    s.workouts.forEach(strip);
+    if (s.activeWorkout) strip(s.activeWorkout);
     s.meta = Object.assign(s.meta, data.meta || {});
     s.version = SCHEMA_VERSION;
     return s;
@@ -609,23 +621,134 @@
     }
   }
 
+  function stripMediaFromWorkouts() {
+    if (!state) return 0;
+    let removed = 0;
+    const strip = (w) => {
+      if (!w || !Array.isArray(w.exercises)) return;
+      w.exercises.forEach((we) => {
+        if (we && Object.prototype.hasOwnProperty.call(we, "media")) {
+          delete we.media;
+          removed++;
+        }
+      });
+    };
+    state.workouts.forEach(strip);
+    if (state.activeWorkout) strip(state.activeWorkout);
+    return removed;
+  }
+
+  function estimateStorageBytes() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY) || "";
+      return new Blob([raw]).size;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  function fmtBytes(n) {
+    if (!Number.isFinite(n) || n <= 0) return "0 B";
+    if (n < 1024) return n + " B";
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+    return (n / (1024 * 1024)).toFixed(2) + " MB";
+  }
+
+  function mediaInfo() {
+    if (!state) return "no media";
+    let count = 0;
+    let bytes = 0;
+    state.exercises.forEach((ex) => {
+      if (ex && typeof ex.media === "string" && ex.media) {
+        count++;
+        bytes += ex.media.length;
+      }
+    });
+    if (count === 0) return "no media";
+    return (
+      count + " photo" + (count === 1 ? "" : "s") + " (" + fmtBytes(bytes) + ")"
+    );
+  }
+
+  function showStorageFullDialog() {
+    if (document.body.classList.contains("modal-open")) return;
+    openModal({
+      title: "Storage full",
+      body:
+        "<p>Your workout data is still safe in this tab, but it could not be written to browser storage.</p>" +
+        '<p class="muted small">This usually means the browser storage limit has been reached. You can free space without losing any workout records.</p>' +
+        '<div class="btn-stack" style="margin-top:12px">' +
+        '<button class="btn primary" id="sf-cleanup">Free up space &amp; retry</button>' +
+        '<button class="btn" id="sf-export">Export backup now</button>' +
+        '<button class="btn" id="sf-settings">Open settings</button>' +
+        "</div>",
+      footer: '<button class="btn" data-action="close-modal">Close</button>',
+      onMount(el) {
+        const cleanupBtn = $("#sf-cleanup", el);
+        if (cleanupBtn)
+          cleanupBtn.addEventListener("click", () => {
+            const removed = stripMediaFromWorkouts();
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+              state.meta.lastSaved = new Date().toISOString();
+              saveOk = true;
+              setSaveIndicator(true);
+              closeModal();
+              toast(
+                removed > 0
+                  ? "Removed " + removed + " duplicated photo(s). Saved."
+                  : "Saved.",
+                "ok",
+                3000,
+              );
+              render();
+            } catch (err2) {
+              toast(
+                "Still full. Export a backup, then delete exercise photos or old workouts in Settings.",
+                "error",
+                7000,
+              );
+            }
+          });
+        const exportBtn = $("#sf-export", el);
+        if (exportBtn) exportBtn.addEventListener("click", () => exportJSON());
+        const settingsBtn = $("#sf-settings", el);
+        if (settingsBtn)
+          settingsBtn.addEventListener("click", () => {
+            closeModal();
+            location.hash = "#/settings";
+          });
+      },
+    });
+  }
+
   function save(immediate) {
     if (!state) return;
-    state.meta.lastSaved = new Date().toISOString();
     clearTimeout(saveTimer);
     const doWrite = () => {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        state.meta.lastSaved = new Date().toISOString();
         saveOk = true;
         setSaveIndicator(true);
       } catch (err) {
-        saveOk = false;
-        setSaveIndicator(false);
-        toast(
-          "Could not save: " + err.message + ". Export a backup now.",
-          "error",
-          9000,
-        );
+        // First attempt failed: try to free space by removing duplicated
+        // media from workout snapshots (media lives in the exercise library).
+        const removed = stripMediaFromWorkouts();
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          state.meta.lastSaved = new Date().toISOString();
+          saveOk = true;
+          setSaveIndicator(true);
+          if (removed > 0) {
+            toast("Freed space by removing duplicated photos", "ok", 2600);
+            render();
+          }
+        } catch (err2) {
+          saveOk = false;
+          setSaveIndicator(false);
+          showStorageFullDialog();
+        }
       }
     };
     if (immediate) doWrite();
@@ -640,7 +763,13 @@
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
         setSaveIndicator(true);
       } catch (_) {
-        /* ignore on unload */
+        stripMediaFromWorkouts();
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          setSaveIndicator(true);
+        } catch (_2) {
+          /* give up on unload */
+        }
       }
     }
   }
@@ -1382,8 +1511,14 @@
       }
       const isGif = /gif/i.test(file.type) || /\.gif$/i.test(file.name);
       if (isGif) {
-        if (file.size > 2 * 1024 * 1024) {
-          toast("Large GIF — may use a lot of storage", "", 3500);
+        if (file.size > 500 * 1024) {
+          toast(
+            "This GIF is " +
+              fmtBytes(file.size) +
+              " — GIFs can fill browser storage quickly. A smaller file is safer.",
+            "",
+            5500,
+          );
         }
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result);
@@ -1869,9 +2004,10 @@
     const useRIR = !!state.settings.useRIR;
     const cols = fields.length + (showWeight ? 1 : 0) + (useRIR ? 1 : 0);
     const completedCount = we.sets.filter((s) => s.completed).length;
-    const mediaHtml = we.media
+    const mediaSrc = (ex && ex.media) || we.media || "";
+    const mediaHtml = mediaSrc
       ? '<div class="ex-media"><img src="' +
-        we.media +
+        mediaSrc +
         '" alt="' +
         esc(we.exerciseName) +
         '" loading="lazy"></div>'
@@ -2168,7 +2304,6 @@
           targetRIR: rx.targetRIR,
           rest: rx.rest || state.settings.defaultRest,
           notes: rx.notes || "",
-          media: ex.media || "",
           sets: [],
         };
         we.sets = buildSetsFromRoutine(rx, prev ? prev.exercise : null, ex);
@@ -3747,12 +3882,21 @@
       "</div>" +
       '<input type="file" id="import-file" accept="application/json,.json" class="sr-only">' +
       '<p class="muted tiny-text" style="margin-top:12px">' +
-      "Storage status: " +
-      (saveOk ? "working" : '<span class="danger-text">unavailable</span>') +
+      "Storage: " +
+      fmtBytes(estimateStorageBytes()) +
+      " used · " +
+      esc(mediaInfo()) +
+      " · " +
+      (saveOk
+        ? "save working"
+        : '<span class="danger-text">save failing</span>') +
       (state.meta.lastSaved
         ? " · last saved " + fmtTime(state.meta.lastSaved)
         : "") +
       "</p>" +
+      '<div class="btn-stack" style="margin-top:8px">' +
+      '<button class="btn small" data-action="cleanup-workout-media">Remove duplicated workout photos</button>' +
+      "</div>" +
       "</section>" +
       '<section class="card">' +
       '<h3 class="danger-text">Danger zone</h3>' +
@@ -4248,6 +4392,17 @@
       }
 
       /* ---- settings / data ---- */
+      case "cleanup-workout-media": {
+        const removed = stripMediaFromWorkouts();
+        if (removed === 0) {
+          toast("No duplicated photos found", "", 2500);
+        } else {
+          save(true);
+          toast("Removed " + removed + " duplicated photo(s)", "ok", 3000);
+          render();
+        }
+        return;
+      }
       case "export-json":
         exportJSON();
         return;
