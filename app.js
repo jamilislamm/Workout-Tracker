@@ -731,6 +731,7 @@
         state.meta.lastSaved = new Date().toISOString();
         saveOk = true;
         setSaveIndicator(true);
+        if (window.Cloud) window.Cloud.schedulePush(state);
       } catch (err) {
         // First attempt failed: try to free space by removing duplicated
         // media from workout snapshots (media lives in the exercise library).
@@ -2087,7 +2088,11 @@
       .map((f) => {
         const val = set[f] == null ? "" : set[f];
         return (
-          '<input type="number" inputmode="decimal" min="0" step="any" class="set-input' +
+          '<div class="stepper">' +
+          '<button type="button" class="stepper-btn" data-step="-1" tabindex="-1" aria-label="Decrease ' +
+          esc(fieldLabel(f)) +
+          '">−</button>' +
+          '<input type="number" inputmode="decimal" min="0" step="1" class="set-input' +
           (set.prefilled && val !== "" ? " prefilled" : "") +
           '"' +
           ' data-field="' +
@@ -2099,13 +2104,19 @@
           esc(fieldLabel(f)) +
           " set " +
           (index + 1) +
-          '">'
+          '">' +
+          '<button type="button" class="stepper-btn" data-step="1" tabindex="-1" aria-label="Increase ' +
+          esc(fieldLabel(f)) +
+          '">+</button>' +
+          "</div>"
         );
       })
       .join("");
 
     const weightInput = showWeight
-      ? '<input type="number" inputmode="decimal" min="0" step="any" class="set-input' +
+      ? '<div class="stepper">' +
+        '<button type="button" class="stepper-btn" data-step="-0.5" tabindex="-1" aria-label="Decrease load">−</button>' +
+        '<input type="number" inputmode="decimal" min="0" step="0.5" class="set-input' +
         (set.prefilled && set.weight != null ? " prefilled" : "") +
         '"' +
         ' data-field="weight" value="' +
@@ -2113,17 +2124,23 @@
         '"' +
         ' placeholder="0" aria-label="External load set ' +
         (index + 1) +
-        '">'
+        '">' +
+        '<button type="button" class="stepper-btn" data-step="0.5" tabindex="-1" aria-label="Increase load">+</button>' +
+        "</div>"
       : "";
 
     const rirInput = useRIR
-      ? '<input type="number" inputmode="numeric" min="0" max="10" step="1" class="set-input"' +
+      ? '<div class="stepper">' +
+        '<button type="button" class="stepper-btn" data-step="-1" tabindex="-1" aria-label="Decrease RIR">−</button>' +
+        '<input type="number" inputmode="numeric" min="0" max="10" step="1" class="set-input"' +
         ' data-field="rir" value="' +
         (set.rir == null ? "" : set.rir) +
         '"' +
         ' placeholder="–" aria-label="Reps in reserve set ' +
         (index + 1) +
-        '">'
+        '">' +
+        '<button type="button" class="stepper-btn" data-step="1" tabindex="-1" aria-label="Increase RIR">+</button>' +
+        "</div>"
       : "";
 
     return (
@@ -2583,6 +2600,11 @@
     hideUndoBar();
     skipRest();
     save(true);
+    if (window.Cloud) {
+      window.Cloud.pushWorkout(w).catch(function (err) {
+        toast("Cloud sync failed: " + err.message, "error", 5000);
+      });
+    }
     closeModal();
     location.hash = "#/dashboard";
     render();
@@ -3221,6 +3243,16 @@
             Object.assign(ex, payload);
           }
           save(true);
+          if (window.Cloud) {
+            window.Cloud.pushMedia(
+              isNew
+                ? state.exercises[state.exercises.length - 1].id
+                : exerciseId,
+              payload.media || "",
+            ).catch(function (err) {
+              toast("Media sync failed: " + err.message, "error", 5000);
+            });
+          }
           closeModal();
           render();
           toast("Exercise saved", "ok", 1800);
@@ -3808,6 +3840,12 @@
     return (
       "" +
       '<div class="card-head"><h1>Settings &amp; Backup</h1></div>' +
+      '<section class="card" id="account-card">' +
+      "<h3>Account &amp; cloud sync</h3>" +
+      '<div id="account-body">' +
+      accountBodyHTML() +
+      "</div>" +
+      "</section>" +
       '<section class="card">' +
       "<h3>Training</h3>" +
       '<label class="field"><span>Weight unit</span>' +
@@ -4191,6 +4229,118 @@
     }
   }
 
+  function accountBodyHTML() {
+    if (!window.Cloud) {
+      return '<p class="muted small">Cloud module not loaded.</p>';
+    }
+    const u = window.Cloud.currentUser();
+    if (u) {
+      return (
+        '<p class="small">Signed in as <strong>' +
+        esc(u.email || u.uid) +
+        "</strong></p>" +
+        '<div class="btn-row">' +
+        '<button class="btn small" data-action="cloud-push-now">Push now</button>' +
+        '<button class="btn small danger" data-action="cloud-signout">Sign out</button>' +
+        "</div>"
+      );
+    }
+    return (
+      '<p class="muted small">Sign in to sync your routines and history across devices. Without an account the app stays local-only.</p>' +
+      '<button class="btn primary" data-action="cloud-signin">Sign in / Sign up</button>'
+    );
+  }
+
+  function refreshAccountCard() {
+    const el = $("#account-body");
+    if (el) el.innerHTML = accountBodyHTML();
+  }
+
+  function openAuthModal() {
+    openModal({
+      title: "Sign in",
+      body:
+        '<div id="auth-msg" class="small" style="min-height:20px;margin-bottom:8px"></div>' +
+        '<label class="field"><span>Email</span>' +
+        '<input type="email" id="auth-email" autocomplete="email" placeholder="you@example.com"></label>' +
+        '<label class="field"><span>Password</span>' +
+        '<input type="password" id="auth-pass" autocomplete="current-password" placeholder="At least 6 characters"></label>' +
+        '<div class="btn-row">' +
+        '<button class="btn primary" id="auth-email-signin">Sign in</button>' +
+        '<button class="btn" id="auth-email-signup">Create account</button>' +
+        "</div>" +
+        '<hr class="hr">' +
+        '<button class="btn" id="auth-google" style="width:100%">Continue with Google</button>' +
+        '<p class="muted tiny-text" style="margin-top:12px">Forgot password? Use the Firebase console or sign in with Google.</p>',
+      footer: '<button class="btn" data-action="close-modal">Cancel</button>',
+      onMount(el) {
+        const msg = $("#auth-msg", el);
+        function show(text, err) {
+          msg.textContent = text;
+          msg.className = "small " + (err ? "danger-text" : "muted");
+        }
+        function busy(on) {
+          $$("button", el).forEach(function (b) {
+            b.disabled = !!on;
+          });
+        }
+        async function doSignIn() {
+          const email = $("#auth-email", el).value.trim();
+          const pass = $("#auth-pass", el).value;
+          if (!email || !pass) {
+            show("Enter email and password", true);
+            return;
+          }
+          busy(true);
+          show("Signing in…");
+          try {
+            await window.Cloud.signInEmail(email, pass);
+            closeModal();
+            toast("Signed in", "ok", 2000);
+          } catch (err) {
+            show(err.message, true);
+            busy(false);
+          }
+        }
+        async function doSignUp() {
+          const email = $("#auth-email", el).value.trim();
+          const pass = $("#auth-pass", el).value;
+          if (!email || pass.length < 6) {
+            show(
+              "Enter an email and a password of at least 6 characters",
+              true,
+            );
+            return;
+          }
+          busy(true);
+          show("Creating account…");
+          try {
+            await window.Cloud.signUpEmail(email, pass);
+            closeModal();
+            toast("Account created", "ok", 2000);
+          } catch (err) {
+            show(err.message, true);
+            busy(false);
+          }
+        }
+        $("#auth-email-signin", el).addEventListener("click", doSignIn);
+        $("#auth-email-signup", el).addEventListener("click", doSignUp);
+        $("#auth-google", el).addEventListener("click", async function () {
+          busy(true);
+          show("Opening Google…");
+          try {
+            await window.Cloud.signInGoogle();
+            closeModal();
+            toast("Signed in with Google", "ok", 2000);
+          } catch (err) {
+            show(err.message, true);
+            busy(false);
+          }
+        });
+      },
+    });
+  }
+
   function handleAction(action, el) {
     switch (action) {
       /* ---- navigation / modals ---- */
@@ -4373,6 +4523,8 @@
           if (!ok) return;
           state.workouts = state.workouts.filter((x) => x.id !== w.id);
           save(true);
+          if (window.Cloud)
+            window.Cloud.deleteWorkoutDoc(w.id).catch(function () {});
           location.hash = "#/dashboard";
           render();
           toast("Workout deleted", "", 2000);
@@ -4403,6 +4555,19 @@
         }
         return;
       }
+      case "cloud-signin":
+        openAuthModal();
+        return;
+      case "cloud-signout":
+        window.Cloud.signOut().then(function () {
+          refreshAccountCard();
+          toast("Signed out", "", 1800);
+        });
+        return;
+      case "cloud-push-now":
+        window.Cloud.schedulePush(state);
+        toast("Push queued", "ok", 1800);
+        return;
       case "export-json":
         exportJSON();
         return;
@@ -4465,6 +4630,47 @@
     document.addEventListener("input", onInput);
     document.addEventListener("change", onActionChange);
 
+    // Stepper buttons: one click = one step, clamped, then fire input.
+    document.addEventListener("click", function (e) {
+      const btn = e.target.closest && e.target.closest(".stepper-btn");
+      if (!btn) return;
+      e.preventDefault();
+      const input = btn.parentElement.querySelector("input");
+      if (!input) return;
+      const step = parseFloat(btn.dataset.step) || 1;
+      const current = parseFloat(input.value);
+      let next;
+      if (Number.isFinite(current)) next = current + step;
+      else next = step > 0 ? step : 0;
+      const min = input.min !== "" ? parseFloat(input.min) : 0;
+      const max = input.max !== "" ? parseFloat(input.max) : Infinity;
+      next = Math.max(min, Math.min(max, next));
+      if (input.step && input.step !== "any") {
+        const s = parseFloat(input.step);
+        if (Number.isFinite(s) && s > 0) next = Math.round(next / s) * s;
+      }
+      next = Math.round(next * 100) / 100;
+      input.value = String(next);
+      input.classList.remove("prefilled");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    // Prevent the mouse wheel from changing number values (it was too fast).
+    // Passive:false is required to call preventDefault.
+    window.addEventListener(
+      "wheel",
+      function (e) {
+        if (
+          e.target &&
+          e.target.matches &&
+          e.target.matches('input[type="number"]')
+        ) {
+          e.preventDefault();
+        }
+      },
+      { passive: false },
+    );
+
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         if ($("#modal-root .modal")) closeModal();
@@ -4503,6 +4709,19 @@
     });
 
     window.addEventListener("online", () => toast("Back online", "", 1500));
+
+    window.addEventListener("cloud-status", function (ev) {
+      const d = ev.detail || {};
+      const el = $("#save-indicator");
+      if (el && d.text) {
+        el.textContent = d.text;
+        el.classList.toggle("error", d.kind === "error");
+      }
+    });
+
+    window.addEventListener("cloud-user", function () {
+      refreshAccountCard();
+    });
   }
 
   function registerServiceWorker() {
@@ -4515,11 +4734,95 @@
     });
   }
 
+  function mergeCloudPull(remote) {
+    if (!remote || !remote.state) return;
+    const s = migrate(remote.state);
+    // Restore media from the separate media collection
+    const mediaMap = remote.media || {};
+    (s.exercises || []).forEach(function (ex) {
+      if (mediaMap[ex.id]) ex.media = mediaMap[ex.id];
+    });
+    // Restore workouts from their collection
+    s.workouts = (remote.workouts || []).map(sanitizeWorkout).filter(Boolean);
+    // If a local active workout exists, keep the newer one
+    if (state && state.activeWorkout && !s.activeWorkout) {
+      s.activeWorkout = state.activeWorkout;
+    }
+    state = s;
+    save(true);
+    applyTheme();
+    render();
+  }
+
+  function applyCloudState(data) {
+    if (!data) return;
+    const s = migrate(data);
+    const mediaMap = {};
+    (state.exercises || []).forEach(function (ex) {
+      if (ex.media) mediaMap[ex.id] = ex.media;
+    });
+    s.exercises.forEach(function (ex) {
+      if (mediaMap[ex.id]) ex.media = mediaMap[ex.id];
+    });
+    s.workouts = state.workouts;
+    if (state.activeWorkout) s.activeWorkout = state.activeWorkout;
+    state = s;
+    save(true);
+    applyTheme();
+    render();
+  }
+
+  function applyCloudWorkouts(changes) {
+    if (!Array.isArray(changes)) return;
+    changes.forEach(function (ch) {
+      if (ch.type === "removed") {
+        state.workouts = state.workouts.filter(function (w) {
+          return w.id !== ch.id;
+        });
+      } else if (ch.type === "upsert") {
+        const w = sanitizeWorkout(ch.data);
+        if (!w) return;
+        const i = state.workouts.findIndex(function (x) {
+          return x.id === w.id;
+        });
+        if (i >= 0) state.workouts[i] = w;
+        else state.workouts.push(w);
+      }
+    });
+    save(true);
+    render();
+  }
+
+  function applyCloudMedia(map) {
+    if (!map) return;
+    state.exercises.forEach(function (ex) {
+      if (map[ex.id]) ex.media = map[ex.id];
+      else delete ex.media;
+    });
+    save(true);
+    render();
+  }
+
+  function handleCloudRemote(ev) {
+    const d = ev.detail;
+    if (d.type === "state") applyCloudState(d.data);
+    else if (d.type === "workouts") applyCloudWorkouts(d.changes);
+    else if (d.type === "media") applyCloudMedia(d.map);
+  }
+
   function init() {
     state = loadState();
     applyTheme();
     restoreTimer();
     bindEvents();
+    if (window.Cloud) {
+      window.addEventListener("cloud-pull", function (ev) {
+        mergeCloudPull(ev.detail);
+      });
+      window.Cloud.init(function () {
+        return state;
+      }, handleCloudRemote);
+    }
     if (!location.hash) location.hash = "#/dashboard";
     render();
     setInterval(tick, 250);
