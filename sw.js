@@ -1,7 +1,7 @@
 /* Workout Tracker — service worker
-   Network-first: always fetches fresh files when online.
-   Falls back to cache only when offline. */
-const CACHE_NAME = "workout-tracker-v2";
+   Network-first with HTTP cache bypass.
+   Guarantees fresh files every reload when online. */
+const CACHE_NAME = "workout-tracker-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -14,10 +14,17 @@ const APP_SHELL = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then((cache) => cache.addAll(APP_SHELL))
-      .then(() => self.skipWaiting()),
+    caches.open(CACHE_NAME).then(async (cache) => {
+      await Promise.all(
+        APP_SHELL.map(async (url) => {
+          try {
+            const res = await fetch(url, { cache: "no-store" });
+            if (res.ok) await cache.put(url, res);
+          } catch (_) {}
+        }),
+      );
+      await self.skipWaiting();
+    }),
   );
 });
 
@@ -48,7 +55,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
 
   event.respondWith(
-    fetch(request)
+    fetch(request, { cache: "no-store" })
       .then((response) => {
         if (response && response.status === 200 && response.type === "basic") {
           const copy = response.clone();

@@ -59,9 +59,15 @@
   async function pullAll() {
     setStatus("Syncing…", "busy");
     const [stateSnap, mediaSnap, workoutsSnap] = await Promise.all([
-      stateDoc().get(),
-      mediaCol().get(),
-      workoutsCol().get(),
+      stateDoc()
+        .get({ source: "server" })
+        .catch(() => stateDoc().get()),
+      mediaCol()
+        .get({ source: "server" })
+        .catch(() => mediaCol().get()),
+      workoutsCol()
+        .get({ source: "server" })
+        .catch(() => workoutsCol().get()),
     ]);
 
     const mediaMap = {};
@@ -160,6 +166,7 @@
     unsubs.push(
       stateDoc().onSnapshot({ includeMetadataChanges: true }, function (snap) {
         if (!snap.exists || snap.metadata.hasPendingWrites) return;
+        if (snap.metadata.fromCache) return;
         if (applyingRemote) return;
         applyingRemote = true;
         try {
@@ -175,6 +182,7 @@
         { includeMetadataChanges: true },
         function (snap) {
           if (snap.metadata.hasPendingWrites) return;
+          if (snap.metadata.fromCache) return;
           const changed = [];
           snap.docChanges().forEach(function (ch) {
             if (ch.type === "removed")
@@ -200,6 +208,7 @@
     unsubs.push(
       mediaCol().onSnapshot({ includeMetadataChanges: true }, function (snap) {
         if (snap.metadata.hasPendingWrites) return;
+        if (snap.metadata.fromCache) return;
         const map = {};
         snap.forEach(function (d) {
           map[d.id] = (d.data() || {}).dataUrl || "";
