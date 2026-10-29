@@ -722,7 +722,7 @@
     });
   }
 
-  function save(immediate) {
+  function save(immediate, skipCloud) {
     if (!state) return;
     clearTimeout(saveTimer);
     const doWrite = () => {
@@ -731,7 +731,7 @@
         state.meta.lastSaved = new Date().toISOString();
         saveOk = true;
         setSaveIndicator(true);
-        if (window.Cloud) window.Cloud.schedulePush(state);
+        if (!skipCloud && window.Cloud) window.Cloud.schedulePush(state);
       } catch (err) {
         // First attempt failed: try to free space by removing duplicated
         // media from workout snapshots (media lives in the exercise library).
@@ -4749,7 +4749,7 @@
       s.activeWorkout = state.activeWorkout;
     }
     state = s;
-    save(true);
+    save(true, true);
     applyTheme();
     render();
   }
@@ -4767,7 +4767,7 @@
     s.workouts = state.workouts;
     if (state.activeWorkout) s.activeWorkout = state.activeWorkout;
     state = s;
-    save(true);
+    save(true, true);
     applyTheme();
     render();
   }
@@ -4789,7 +4789,7 @@
         else state.workouts.push(w);
       }
     });
-    save(true);
+    save(true, true);
     render();
   }
 
@@ -4799,7 +4799,7 @@
       if (map[ex.id]) ex.media = map[ex.id];
       else delete ex.media;
     });
-    save(true);
+    save(true, true);
     render();
   }
 

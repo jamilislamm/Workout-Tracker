@@ -1,6 +1,9 @@
 /* ============================================================
    cloud.js — Firebase Auth + Firestore sync layer
-   Classic script (compat SDK). Exposes window.Cloud.
+   Structure:
+     users/{uid}/appData/state          — settings, routines, exercises (no media), activeWorkout
+     users/{uid}/media/{exerciseId}     — { dataUrl }
+     users/{uid}/workouts/{workoutId}   — full workout record
    ============================================================ */
 (function () {
   "use strict";
@@ -19,19 +22,27 @@
   const auth = firebase.auth();
   const db = firebase.firestore();
 
-  // Multi-tab offline cache. Fail silently if the browser refuses.
   db.enablePersistence({ synchronizeTabs: true }).catch(function () {});
 
   let user = null;
-  let stateRef = null;
   let pushTimer = null;
   let unsubs = [];
   let applyingRemote = false;
   let onRemoteCallback = null;
   let getStateFn = null;
 
-  function base() {
-    return db.collection("users").doc(user.uid).collection("appData");
+  /* ---------- Paths (correct types) ---------- */
+  function userDoc() {
+    return db.collection("users").doc(user.uid);
+  }
+  function stateDoc() {
+    return userDoc().collection("appData").doc("state");
+  }
+  function mediaCol() {
+    return userDoc().collection("media");
+  }
+  function workoutsCol() {
+    return userDoc().collection("workouts");
   }
 
   function setStatus(text, kind) {
@@ -44,12 +55,11 @@
 
   /* ---------- Pull everything ---------- */
   async function pullAll() {
-    const b = base();
     setStatus("Syncing…", "busy");
     const [stateSnap, mediaSnap, workoutsSnap] = await Promise.all([
-      b.doc("state").get(),
-      b.collection("media").get(),
-      b.collection("workouts").get(),
+      stateDoc().get(),
+      mediaCol().get(),
+      workoutsCol().get(),
     ]);
 
     const mediaMap = {};
@@ -58,12 +68,8 @@
       if (v && typeof v.dataUrl === "string") mediaMap[d.id] = v.dataUrl;
     });
 
-    let state = null;
-    if (stateSnap.exists) {
-      state = stateSnap.data();
-    }
+    const state = stateSnap.exists ? stateSnap.data() : null;
 
-    // Workouts live in their own collection; state.workouts is rebuilt from it.
     const workouts = [];
     workoutsSnap.forEach(function (d) {
       const v = d.data();
@@ -74,11 +80,8 @@
   }
 
   /* ---------- Push state (debounced) ---------- */
-  function schedulePush(state) {
+  function schedulePush() {
     if (!user || applyingRemote) return;
-    getStateFn = function () {
-      return state;
-    };
     clearTimeout(pushTimer);
     pushTimer = setTimeout(function () {
       pushStateNow();
@@ -92,10 +95,7 @@
     try {
       setStatus("Saving…", "busy");
       const slim = JSON.parse(JSON.stringify(state));
-      // Workouts are pushed separately; keep state doc small.
-      const finishedWorkouts = slim.workouts || [];
       slim.workouts = [];
-      // Exercises keep media here? No — media lives in /media.
       (slim.exercises || []).forEach(function (ex) {
         delete ex.media;
       });
@@ -108,74 +108,70 @@
         lastSaved: new Date().toISOString(),
         schemaVersion: slim.version || 1,
       });
-      await base().doc("state").set(slim, { merge: false });
+      await stateDoc().set(slim, { merge: false });
       setStatus("Saved to cloud", "ok");
-      return finishedWorkouts;
     } catch (err) {
       setStatus("Cloud save failed: " + err.message, "error");
       throw err;
     }
   }
 
-  /* ---------- Media documents ---------- */
+  /* ---------- Media ---------- */
   async function pushMedia(exerciseId, dataUrl) {
     if (!user) return;
-    const ref = base().collection("media").doc(exerciseId);
+    const ref = mediaCol().doc(exerciseId);
     if (!dataUrl) {
       try {
         await ref.delete();
       } catch (_) {}
       return;
     }
-    // Firestore document limit is 1 MB. Reject before writing.
     if (dataUrl.length > 900000) {
       setStatus("Media too large for Firestore (max ~900 KB)", "error");
-      throw new Error(
-        "Media too large. Use a smaller image or Firebase Storage.",
-      );
+      throw new Error("Media too large.");
     }
     await ref.set({ dataUrl: dataUrl, updatedAt: new Date().toISOString() });
   }
 
-  /* ---------- Workout documents ---------- */
+  /* ---------- Workouts ---------- */
   async function pushWorkout(workout) {
     if (!user || !workout || !workout.id) return;
     const copy = JSON.parse(JSON.stringify(workout));
     (copy.exercises || []).forEach(function (we) {
       delete we.media;
     });
-    await base().collection("workouts").doc(workout.id).set(copy);
+    await workoutsCol().doc(workout.id).set(copy);
   }
 
   async function deleteWorkoutDoc(workoutId) {
     if (!user) return;
     try {
-      await base().collection("workouts").doc(workoutId).delete();
+      await workoutsCol().doc(workoutId).delete();
     } catch (_) {}
   }
 
-  /* ---------- Realtime listeners ---------- */
+  /* ---------- Realtime ---------- */
   function startRealtime(cb) {
     onRemoteCallback = cb;
     stopRealtime();
-    const b = base();
 
     unsubs.push(
-      b
-        .doc("state")
-        .onSnapshot({ includeMetadataChanges: true }, function (snap) {
-          if (!snap.exists || snap.metadata.hasPendingWrites) return;
-          if (applyingRemote) return;
-          applyingRemote = true;
+      stateDoc().onSnapshot({ includeMetadataChanges: true }, function (snap) {
+        if (!snap.exists || snap.metadata.hasPendingWrites) return;
+        if (applyingRemote) return;
+        applyingRemote = true;
+        try {
           onRemoteCallback({ type: "state", data: snap.data() });
+        } finally {
           applyingRemote = false;
-        }),
+        }
+      }),
     );
 
     unsubs.push(
-      b
-        .collection("workouts")
-        .onSnapshot({ includeMetadataChanges: true }, function (snap) {
+      workoutsCol().onSnapshot(
+        { includeMetadataChanges: true },
+        function (snap) {
           if (snap.metadata.hasPendingWrites) return;
           const changed = [];
           snap.docChanges().forEach(function (ch) {
@@ -190,24 +186,29 @@
           });
           if (!changed.length) return;
           applyingRemote = true;
-          onRemoteCallback({ type: "workouts", changes: changed });
-          applyingRemote = false;
-        }),
+          try {
+            onRemoteCallback({ type: "workouts", changes: changed });
+          } finally {
+            applyingRemote = false;
+          }
+        },
+      ),
     );
 
     unsubs.push(
-      b
-        .collection("media")
-        .onSnapshot({ includeMetadataChanges: true }, function (snap) {
-          if (snap.metadata.hasPendingWrites) return;
-          const map = {};
-          snap.forEach(function (d) {
-            map[d.id] = (d.data() || {}).dataUrl || "";
-          });
-          applyingRemote = true;
+      mediaCol().onSnapshot({ includeMetadataChanges: true }, function (snap) {
+        if (snap.metadata.hasPendingWrites) return;
+        const map = {};
+        snap.forEach(function (d) {
+          map[d.id] = (d.data() || {}).dataUrl || "";
+        });
+        applyingRemote = true;
+        try {
           onRemoteCallback({ type: "media", map: map });
+        } finally {
           applyingRemote = false;
-        }),
+        }
+      }),
     );
   }
 
@@ -224,28 +225,65 @@
   function onAuth(cb) {
     return auth.onAuthStateChanged(cb);
   }
-
   async function signInEmail(email, password) {
     return auth.signInWithEmailAndPassword(email, password);
   }
-
   async function signUpEmail(email, password) {
     return auth.createUserWithEmailAndPassword(email, password);
   }
-
   async function signInGoogle() {
     const provider = new firebase.auth.GoogleAuthProvider();
     return auth.signInWithPopup(provider);
   }
-
   async function signOutUser() {
     stopRealtime();
     user = null;
-    stateRef = null;
+    getStateFn = null;
     return auth.signOut();
   }
 
-  /* ---------- Entry point called from app.js ---------- */
+  /* ---------- First-sync helpers ---------- */
+  async function bootstrapFromLocal() {
+    const s = getStateFn();
+    if (!s) return;
+    setStatus("Uploading local data…", "busy");
+    await pushStateNow();
+    for (const w of s.workouts || []) {
+      try {
+        await pushWorkout(w);
+      } catch (_) {}
+    }
+    for (const ex of s.exercises || []) {
+      if (ex.media) {
+        try {
+          await pushMedia(ex.id, ex.media);
+        } catch (_) {}
+      }
+    }
+    setStatus("Uploaded to cloud", "ok");
+  }
+
+  async function pushLocalOnlyWorkouts(remoteWorkouts) {
+    const s = getStateFn();
+    if (!s) return 0;
+    const remoteIds = new Set(
+      (remoteWorkouts || []).map(function (w) {
+        return w.id;
+      }),
+    );
+    let count = 0;
+    for (const w of s.workouts || []) {
+      if (!remoteIds.has(w.id)) {
+        try {
+          await pushWorkout(w);
+          count++;
+        } catch (_) {}
+      }
+    }
+    return count;
+  }
+
+  /* ---------- Init ---------- */
   function init(getState, onRemote) {
     getStateFn = getState;
     onAuth(async function (u) {
@@ -260,9 +298,40 @@
       window.dispatchEvent(
         new CustomEvent("cloud-user", { detail: { email: u.email || u.uid } }),
       );
+
       try {
         const remote = await pullAll();
-        window.dispatchEvent(new CustomEvent("cloud-pull", { detail: remote }));
+        const localState = getStateFn();
+        const hasLocalData =
+          localState &&
+          ((localState.workouts && localState.workouts.length > 0) ||
+            !!localState.activeWorkout);
+
+        if (!remote.state) {
+          // Cloud is empty.
+          if (hasLocalData) {
+            await bootstrapFromLocal();
+          } else {
+            setStatus("Connected — cloud empty", "ok");
+          }
+        } else {
+          // Cloud has data. Preserve any local-only workouts before pulling.
+          const pushed = await pushLocalOnlyWorkouts(remote.workouts || []);
+          if (pushed > 0) {
+            await new Promise(function (r) {
+              setTimeout(r, 400);
+            });
+            const fresh = await pullAll();
+            window.dispatchEvent(
+              new CustomEvent("cloud-pull", { detail: fresh }),
+            );
+          } else {
+            window.dispatchEvent(
+              new CustomEvent("cloud-pull", { detail: remote }),
+            );
+          }
+        }
+
         startRealtime(onRemote);
       } catch (err) {
         setStatus("Pull failed: " + err.message, "error");
