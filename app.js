@@ -978,7 +978,10 @@
     }
   }
 
+  let restAutoCloseTimer = null;
+
   function startRest(seconds) {
+    clearTimeout(restAutoCloseTimer);
     const secs = clampNum(
       Math.round(seconds || state.settings.defaultRest || 60),
       5,
@@ -995,6 +998,7 @@
     updateTimerBar();
   }
   function toggleTimerPause() {
+    clearTimeout(restAutoCloseTimer);
     if (!restTimer.active) return;
     if (restTimer.running) {
       restTimer.remainingMs = Math.max(0, restTimer.endAt - Date.now());
@@ -1019,6 +1023,7 @@
     }
   }
   function addRestTime(seconds) {
+    clearTimeout(restAutoCloseTimer);
     if (!restTimer.active) return;
     if (restTimer.running) {
       restTimer.endAt += seconds * 1000;
@@ -1036,6 +1041,7 @@
     updateTimerBar();
   }
   function skipRest() {
+    clearTimeout(restAutoCloseTimer);
     restTimer = {
       active: false,
       durationMs: 0,
@@ -1088,35 +1094,115 @@
     }
   }
 
-  function updateTimerBar() {
-    const bar = $("#timerbar");
-    if (!bar) return;
-    if (!restTimer.active) {
-      bar.hidden = true;
-      return;
-    }
-    bar.hidden = false;
+  function buildRestPopupHTML() {
+    const size = 220;
+    const r = 95;
+    const stroke = 12;
+    const c = 2 * Math.PI * r;
     const remaining = restRemainingMs();
-    const timeEl = $("#timer-time");
-    const fillEl = $("#timer-fill");
-    const toggleEl = $("#timer-toggle");
-    const labelEl = $("#timer-label");
-
-    timeEl.textContent = fmtClock(remaining);
-    timeEl.classList.toggle("done", remaining <= 0);
-    labelEl.textContent =
+    const pct = clampNum(remaining / (restTimer.durationMs || 1), 0, 1);
+    const offset = c * (1 - pct);
+    const label =
       remaining <= 0
         ? "Rest complete"
         : restTimer.running
           ? "Resting"
           : "Paused";
-    toggleEl.textContent = restTimer.running ? "Pause" : "Resume";
+    return (
+      '<div class="rest-card" role="dialog" aria-modal="true" aria-label="Rest timer">' +
+      '<div class="rest-ring-wrap">' +
+      '<svg viewBox="0 0 ' +
+      size +
+      " " +
+      size +
+      '" class="rest-ring" aria-hidden="true">' +
+      '<circle class="rest-ring-bg" cx="' +
+      size / 2 +
+      '" cy="' +
+      size / 2 +
+      '" r="' +
+      r +
+      '" stroke-width="' +
+      stroke +
+      '"/>' +
+      '<circle class="rest-ring-fg" cx="' +
+      size / 2 +
+      '" cy="' +
+      size / 2 +
+      '" r="' +
+      r +
+      '" stroke-width="' +
+      stroke +
+      '" stroke-dasharray="' +
+      c +
+      '" stroke-dashoffset="' +
+      offset.toFixed(2) +
+      '" transform="rotate(-90 ' +
+      size / 2 +
+      " " +
+      size / 2 +
+      ')"/>' +
+      "</svg>" +
+      '<div class="rest-center">' +
+      '<div class="rest-time">' +
+      fmtClock(remaining) +
+      "</div>" +
+      '<div class="rest-sub">' +
+      label +
+      "</div>" +
+      "</div>" +
+      "</div>" +
+      '<div class="rest-actions">' +
+      '<button class="btn" data-action="timer-add" data-secs="-15">−15s</button>' +
+      '<button class="btn" data-action="timer-toggle">' +
+      (restTimer.running ? "Pause" : "Resume") +
+      "</button>" +
+      '<button class="btn" data-action="timer-add" data-secs="15">+15s</button>' +
+      "</div>" +
+      '<button class="btn primary big" data-action="timer-skip">Skip rest</button>' +
+      "</div>"
+    );
+  }
 
-    const pct =
-      restTimer.durationMs > 0
-        ? clampNum((remaining / restTimer.durationMs) * 100, 0, 100)
-        : 0;
-    fillEl.style.width = pct + "%";
+  function refreshRestPopup() {
+    const root = $("#rest-popup-root");
+    if (!root || root.hidden) return;
+    const remaining = restRemainingMs();
+    const pct = clampNum(remaining / (restTimer.durationMs || 1), 0, 1);
+    const r = 95;
+    const c = 2 * Math.PI * r;
+    const offset = c * (1 - pct);
+    const fg = root.querySelector(".rest-ring-fg");
+    if (fg) fg.setAttribute("stroke-dashoffset", String(offset.toFixed(2)));
+    const t = root.querySelector(".rest-time");
+    if (t) t.textContent = fmtClock(remaining);
+    const s = root.querySelector(".rest-sub");
+    if (s)
+      s.textContent =
+        remaining <= 0
+          ? "Rest complete"
+          : restTimer.running
+            ? "Resting"
+            : "Paused";
+    const tb = root.querySelector('[data-action="timer-toggle"]');
+    if (tb) tb.textContent = restTimer.running ? "Pause" : "Resume";
+  }
+
+  function updateTimerBar() {
+    const root = $("#rest-popup-root");
+    if (!root) return;
+    if (!restTimer.active) {
+      if (!root.hidden) {
+        root.hidden = true;
+        root.innerHTML = "";
+      }
+      return;
+    }
+    if (root.hidden) {
+      root.innerHTML = buildRestPopupHTML();
+      root.hidden = false;
+    }
+    refreshRestPopup();
   }
 
   let timerFinishedFlag = false;
@@ -1137,9 +1223,19 @@
           beep();
           vibrate([200, 100, 200]);
           toast("Rest finished", "ok", 2200);
+          clearTimeout(restAutoCloseTimer);
+          restAutoCloseTimer = setTimeout(() => {
+            if (
+              restTimer.active &&
+              !restTimer.running &&
+              restRemainingMs() === 0
+            ) {
+              skipRest();
+            }
+          }, 1800);
           setTimeout(() => {
             timerFinishedFlag = false;
-          }, 1500);
+          }, 2200);
         }
       }
       updateTimerBar();
@@ -1594,7 +1690,11 @@
       week.length +
       '</span><span class="stat-label">/ ' +
       target +
-      " workouts</span></div>" +
+      " workouts</span>" +
+      (week.length > target
+        ? '<span class="pill up">✓ +' + (week.length - target) + "</span>"
+        : "") +
+      "</div>" +
       '<div class="progress" style="margin-top:10px"><div class="progress-fill" style="width:' +
       clampNum((week.length / (target || 1)) * 100, 0, 100) +
       '%"></div></div>' +
@@ -1658,39 +1758,43 @@
     const paused = !!w.pausedAt;
 
     const header =
-      '<section class="card wo-header">' +
-      '<div class="wo-top">' +
-      "<div>" +
-      '<h1 class="wo-title">' +
+      '<section class="wo-sticky">' +
+      '<div class="wo-sticky-row">' +
+      '<div class="wo-sticky-info">' +
+      '<div class="wo-sticky-name">' +
       esc(w.routineName) +
-      "</h1>" +
-      '<div class="muted small">Started ' +
-      fmtTime(w.startTime) +
-      ' · <span id="wo-elapsed">' +
+      (paused ? ' · <span class="warn">Paused</span>' : "") +
+      "</div>" +
+      '<div class="wo-sticky-meta">' +
+      '<span id="wo-elapsed" class="wo-sticky-timer">' +
       fmtClock(workoutElapsedMs(w)) +
       "</span>" +
-      (paused ? ' · <strong class="warn">Paused</strong>' : "") +
+      '<span class="wo-sticky-sep">·</span>' +
+      "<span>" +
+      doneEx +
+      " / " +
+      w.exercises.length +
+      " ex</span>" +
+      '<span class="wo-sticky-sep">·</span>' +
+      "<span>" +
+      doneSets +
+      " / " +
+      totalSets +
+      " sets</span>" +
       "</div>" +
       "</div>" +
-      '<div class="wo-btns">' +
+      '<div class="wo-sticky-actions">' +
       '<button class="btn small" data-action="toggle-pause">' +
       (paused ? "Resume" : "Pause") +
       "</button>" +
-      '<button class="btn primary small" data-action="finish-workout">Finish</button>' +
+      '<button class="btn small primary" data-action="finish-workout">Finish</button>' +
       "</div>" +
       "</div>" +
-      '<div class="progress"><div class="progress-fill" style="width:' +
+      '<div class="wo-sticky-progress">' +
+      '<div class="wo-sticky-progress-fill" style="width:' +
       (totalSets ? (doneSets / totalSets) * 100 : 0) +
-      '%"></div></div>' +
-      '<div class="muted small">' +
-      doneSets +
-      "/" +
-      totalSets +
-      " sets · " +
-      doneEx +
-      "/" +
-      w.exercises.length +
-      " exercises done</div>" +
+      '%"></div>' +
+      "</div>" +
       "</section>";
 
     const totalEx = w.exercises.length;
@@ -1700,17 +1804,30 @@
 
     const navBar =
       '<div class="slide-nav">' +
-      '<button class="btn small" data-action="prev-exercise"' +
+      '<button class="slide-nav-btn" data-action="prev-exercise"' +
       (idx === 0 ? " disabled" : "") +
-      ">← Prev</button>" +
-      '<span class="slide-indicator">Exercise ' +
+      ' aria-label="Previous exercise">‹</button>' +
+      '<div class="slide-nav-center">' +
+      '<div class="slide-nav-counter">' +
       (idx + 1) +
-      " of " +
+      " / " +
       totalEx +
-      "</span>" +
-      '<button class="btn small" data-action="next-exercise"' +
+      "</div>" +
+      '<div class="slide-dots">' +
+      w.exercises
+        .map(function (_, i) {
+          var cls =
+            "slide-dot" +
+            (i === idx ? " active" : "") +
+            (i < idx ? " done" : "");
+          return '<span class="' + cls + '"></span>';
+        })
+        .join("") +
+      "</div>" +
+      "</div>" +
+      '<button class="slide-nav-btn" data-action="next-exercise"' +
       (idx === totalEx - 1 ? " disabled" : "") +
-      ">Next →</button>" +
+      ' aria-label="Next exercise">›</button>' +
       "</div>";
 
     const allDone =
@@ -1719,9 +1836,11 @@
       currentWE.sets.every((s) => s.completed);
     const nextBtnHtml =
       idx < totalEx - 1
-        ? allDone
-          ? '<button class="btn primary big" data-action="next-exercise" style="margin-top:12px">Next exercise →</button>'
-          : '<button class="btn ghost small" data-action="next-exercise" style="margin-top:12px">Skip to next exercise →</button>'
+        ? '<button class="btn ' +
+          (allDone ? "primary" : "ghost") +
+          ' big slide-next-btn" data-action="next-exercise">' +
+          (allDone ? "Next exercise →" : "Skip to next →") +
+          "</button>"
         : "";
 
     return (
@@ -4194,6 +4313,19 @@
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         if ($("#modal-root .modal")) closeModal();
+        return;
+      }
+      if (currentRoute.name === "workout" && state.activeWorkout) {
+        if ($("#modal-root .modal")) return;
+        const tag = (e.target && e.target.tagName) || "";
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          navigateExercise(-1);
+        } else if (e.key === "ArrowRight") {
+          e.preventDefault();
+          navigateExercise(1);
+        }
       }
     });
 

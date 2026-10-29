@@ -70,27 +70,7 @@
       <main class="view" id="view" tabindex="-1"></main>
     </div>
 
-    <div id="timerbar" class="timerbar" hidden>
-      <div class="timer-top">
-        <span class="timer-label" id="timer-label">Rest</span>
-        <span class="timer-time" id="timer-time">0:00</span>
-      </div>
-      <div class="timer-actions">
-        <button class="btn tiny" data-action="timer-add" data-secs="-15">
-          −15
-        </button>
-        <button class="btn tiny" data-action="timer-add" data-secs="15">
-          +15
-        </button>
-        <button class="btn tiny" data-action="timer-toggle" id="timer-toggle">
-          Pause
-        </button>
-        <button class="btn tiny" data-action="timer-skip">Skip</button>
-      </div>
-      <div class="timer-progress">
-        <div class="timer-progress-fill" id="timer-fill"></div>
-      </div>
-    </div>
+    <div id="rest-popup-root" class="rest-popup-root" hidden></div>
 
     <div id="undobar" class="undobar" hidden>
       <span id="undobar-text">Set updated</span>
