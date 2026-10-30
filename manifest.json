@@ -1,8 +1,9 @@
 {
+  "id": "./?source=pwa",
   "name": "Workout Tracker",
   "short_name": "Workouts",
   "description": "Personal strength workout tracker — offline, private, free.",
-  "start_url": "./",
+  "start_url": "./?source=pwa",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

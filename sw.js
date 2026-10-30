@@ -1,7 +1,7 @@
 /* Workout Tracker — service worker
    Network-first with HTTP cache bypass.
    Guarantees fresh files every reload when online. */
-const CACHE_NAME = "workout-tracker-v3";
+const CACHE_NAME = "workout-tracker-v4";
 const APP_SHELL = [
   "./",
   "./index.html",
