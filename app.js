@@ -824,16 +824,106 @@
       reps: "Reps",
       repsL: "L",
       repsR: "R",
-      duration: "Sec",
-      durationL: "L (s)",
-      durationR: "R (s)",
+      duration: "Duration",
+      durationL: "L",
+      durationR: "R",
       distance: "m",
-      distanceL: "L (m)",
-      distanceR: "R (m)",
+      distanceL: "L",
+      distanceR: "R",
       weight: "Load",
       rir: "RIR",
     };
     return map[field] || field;
+  }
+  function isDurationField(f) {
+    return f === "duration" || f === "durationL" || f === "durationR";
+  }
+  function durationSetFieldHTML(set, fieldName, index, prefilled) {
+    const total = set[fieldName];
+    let mm = "",
+      ss = "";
+    if (total != null && Number.isFinite(total)) {
+      const t = Math.max(0, Math.round(total));
+      mm = String(Math.floor(t / 60));
+      ss = String(t % 60).padStart(2, "0");
+    }
+    const label =
+      fieldName === "duration"
+        ? "Duration"
+        : fieldName === "durationL"
+          ? "Duration L"
+          : "Duration R";
+    const pre = prefilled ? " prefilled" : "";
+    return (
+      '<div class="set-field set-field-duration" data-for="' +
+      fieldName +
+      '">' +
+      '<span class="set-field-label">' +
+      esc(label) +
+      "</span>" +
+      '<div class="duration-input">' +
+      '<input type="number" inputmode="numeric" min="0" max="999" class="set-input' +
+      pre +
+      '" data-field="' +
+      fieldName +
+      '-min" value="' +
+      mm +
+      '" placeholder="0" aria-label="' +
+      esc(label) +
+      " minutes set " +
+      (index + 1) +
+      '">' +
+      '<span class="duration-sep" aria-hidden="true">:</span>' +
+      '<input type="number" inputmode="numeric" min="0" max="59" class="set-input' +
+      pre +
+      '" data-field="' +
+      fieldName +
+      '-sec" value="' +
+      ss +
+      '" placeholder="00" aria-label="' +
+      esc(label) +
+      " seconds set " +
+      (index + 1) +
+      '">' +
+      "</div>" +
+      "</div>"
+    );
+  }
+  function durationFieldForModal(idPrefix, value) {
+    let mm = "",
+      ss = "";
+    if (value != null && Number.isFinite(value) && value > 0) {
+      const t = Math.max(0, Math.round(value));
+      mm = String(Math.floor(t / 60));
+      ss = String(t % 60).padStart(2, "0");
+    }
+    return (
+      '<div class="duration-input">' +
+      '<input type="number" inputmode="numeric" min="0" max="999" id="' +
+      idPrefix +
+      '-min" value="' +
+      mm +
+      '" placeholder="0" aria-label="Minutes">' +
+      '<span class="duration-sep" aria-hidden="true">:</span>' +
+      '<input type="number" inputmode="numeric" min="0" max="59" id="' +
+      idPrefix +
+      '-sec" value="' +
+      ss +
+      '" placeholder="00" aria-label="Seconds">' +
+      "</div>"
+    );
+  }
+  function readDurationField(root, idPrefix) {
+    const mmEl = $("#" + idPrefix + "-min", root);
+    const ssEl = $("#" + idPrefix + "-sec", root);
+    if (!mmEl || !ssEl) return null;
+    const mmRaw = mmEl.value.trim();
+    const ssRaw = ssEl.value.trim();
+    if (mmRaw === "" && ssRaw === "") return null;
+    const mm = parseInt(mmRaw, 10) || 0;
+    let ss = parseInt(ssRaw, 10) || 0;
+    ss = Math.max(0, Math.min(59, ss));
+    return mm * 60 + ss;
   }
   function setHasValue(set, we) {
     return valueFields(we).some((k) => set[k] != null);
@@ -875,21 +965,31 @@
             ? set.distanceR
             : set.repsR;
       if (a == null && b == null) return "—";
-      const suffix = t === "timed" ? "s" : t === "distance" ? "m" : "";
-      return (a == null ? "—" : a) + "/" + (b == null ? "—" : b) + suffix;
+      const fmt = (v) => {
+        if (v == null) return "—";
+        if (t === "timed") return fmtClock(v * 1000);
+        if (t === "distance") return v + "m";
+        return String(v);
+      };
+      return fmt(a) + "/" + fmt(b);
     }
-    if (t === "timed") return set.duration == null ? "—" : set.duration + "s";
+    if (t === "timed")
+      return set.duration == null ? "—" : fmtClock(set.duration * 1000);
     if (t === "distance")
       return set.distance == null ? "—" : set.distance + "m";
     return set.reps == null ? "—" : String(set.reps);
   }
   function targetText(we) {
     const t = we.type || "reps";
-    const suffix = t === "timed" ? " s" : t === "distance" ? " m" : " reps";
+    const fmtOne = (v) => {
+      if (t === "timed") return fmtClock(v * 1000);
+      if (t === "distance") return v + " m";
+      return v + " reps";
+    };
     if (we.repMin != null && we.repMax != null)
-      return we.repMin + "–" + we.repMax + suffix;
-    if (we.repMax != null) return "up to " + we.repMax + suffix;
-    if (we.repMin != null) return we.repMin + "+" + suffix;
+      return fmtOne(we.repMin) + "–" + fmtOne(we.repMax);
+    if (we.repMax != null) return "up to " + fmtOne(we.repMax);
+    if (we.repMin != null) return fmtOne(we.repMin) + "+";
     return "no target";
   }
   function workoutElapsedMs(w) {
@@ -1033,8 +1133,9 @@
         prs.push({
           name: we.exerciseName,
           label:
-            (we.type === "timed" ? bestNow + " s" : bestNow + " reps") +
-            " in one set",
+            (we.type === "timed"
+              ? fmtClock(bestNow * 1000)
+              : bestNow + " reps") + " in one set",
           kind: "set",
         });
       }
@@ -1190,28 +1291,59 @@
   }
 
   let audioCtx = null;
-  function beep() {
-    if (!state.settings.sound) return;
-    try {
+  function primeAudio() {
+    if (!audioCtx) {
       const Ctx = window.AudioContext || window.webkitAudioContext;
-      if (!Ctx) return;
-      if (!audioCtx) audioCtx = new Ctx();
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = "sine";
-      osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.0001, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.25, audioCtx.currentTime + 0.02);
-      gain.gain.exponentialRampToValueAtTime(
-        0.0001,
-        audioCtx.currentTime + 0.55,
-      );
-      osc.connect(gain).connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.6);
-    } catch (_) {
-      /* ignore */
+      if (!Ctx) return Promise.resolve();
+      try {
+        audioCtx = new Ctx();
+      } catch (_) {
+        return Promise.resolve();
+      }
     }
+    if (audioCtx.state === "suspended") {
+      return audioCtx.resume().catch(() => {});
+    }
+    return Promise.resolve();
+  }
+  function playBeep(durationSec) {
+    return new Promise((resolve) => {
+      try {
+        if (!audioCtx) {
+          resolve();
+          return;
+        }
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = 880;
+        const now = audioCtx.currentTime;
+        const dur = durationSec || 0.55;
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.3, now + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(now);
+        osc.stop(now + dur + 0.05);
+        osc.onended = () => resolve();
+        setTimeout(resolve, dur * 1000 + 120);
+      } catch (_) {
+        resolve();
+      }
+    });
+  }
+  async function beepTimes(count, gapMs) {
+    if (!state.settings.sound) return;
+    await primeAudio();
+    const n = Math.max(1, count || 1);
+    const gap = gapMs || 400;
+    for (let i = 0; i < n; i++) {
+      await playBeep(0.55);
+      if (i < n - 1) await new Promise((r) => setTimeout(r, gap));
+    }
+  }
+  function beep() {
+    return beepTimes(3, 400);
   }
   function vibrate(pattern) {
     if (!state.settings.vibration) return;
@@ -1350,7 +1482,7 @@
         persistTimer();
         if (!timerFinishedFlag) {
           timerFinishedFlag = true;
-          beep();
+          beepTimes(3, 400);
           vibrate([200, 100, 200]);
           toast("Rest finished", "ok", 2200);
           clearTimeout(restAutoCloseTimer);
@@ -1369,6 +1501,295 @@
         }
       }
       updateTimerBar();
+    }
+    // Exercise timer
+    if (exerciseTimer.active) {
+      if (exerciseTimer.running && exerciseTimer.endAt <= Date.now()) {
+        onExerciseTimerEnd();
+      }
+      updateExerciseTimerBar();
+    }
+  }
+
+  /* ---- Exercise timer ---- */
+  let exerciseTimer = {
+    active: false,
+    weId: null,
+    durationMs: 0,
+    endAt: 0,
+    remainingMs: 0,
+    running: false,
+  };
+  let exerciseTimerEndHandle = null;
+  function exerciseTimerRemainingMs() {
+    if (!exerciseTimer.active) return 0;
+    return exerciseTimer.running
+      ? Math.max(0, exerciseTimer.endAt - Date.now())
+      : exerciseTimer.remainingMs;
+  }
+  function scheduleExerciseTimerEnd() {
+    clearTimeout(exerciseTimerEndHandle);
+    if (!exerciseTimer.active || !exerciseTimer.running) return;
+    const ms = Math.max(0, exerciseTimer.endAt - Date.now());
+    exerciseTimerEndHandle = setTimeout(onExerciseTimerEnd, ms + 60);
+  }
+  function onExerciseTimerEnd() {
+    if (!exerciseTimer.active || !exerciseTimer.running) return;
+    exerciseTimer.running = false;
+    exerciseTimer.remainingMs = 0;
+    beepTimes(3, 500);
+    vibrate([200, 100, 200, 100, 200]);
+    toast("Exercise timer finished!", "ok", 3000);
+    updateExerciseTimerBar();
+  }
+  function startExerciseTimer(weId, durationSeconds) {
+    clearTimeout(exerciseTimerEndHandle);
+    const secs = clampNum(Math.round(durationSeconds || 60), 5, 3600);
+    exerciseTimer = {
+      active: true,
+      weId: weId,
+      durationMs: secs * 1000,
+      endAt: Date.now() + secs * 1000,
+      remainingMs: secs * 1000,
+      running: true,
+    };
+    primeAudio();
+    scheduleExerciseTimerEnd();
+    updateExerciseTimerBar();
+  }
+  function toggleExerciseTimerPause() {
+    if (!exerciseTimer.active) return;
+    if (exerciseTimer.running) {
+      exerciseTimer.remainingMs = Math.max(0, exerciseTimer.endAt - Date.now());
+      exerciseTimer.running = false;
+      clearTimeout(exerciseTimerEndHandle);
+    } else {
+      exerciseTimer.endAt = Date.now() + exerciseTimer.remainingMs;
+      exerciseTimer.running = true;
+      if (exerciseTimer.remainingMs <= 0) {
+        exerciseTimer.remainingMs = exerciseTimer.durationMs;
+        exerciseTimer.endAt = Date.now() + exerciseTimer.durationMs;
+      }
+      scheduleExerciseTimerEnd();
+    }
+    updateExerciseTimerBar();
+  }
+  function addExerciseTimerTime(seconds) {
+    if (!exerciseTimer.active) return;
+    if (exerciseTimer.running) {
+      exerciseTimer.endAt += seconds * 1000;
+      exerciseTimer.durationMs = Math.max(
+        exerciseTimer.durationMs,
+        exerciseTimer.endAt - Date.now(),
+      );
+    } else {
+      exerciseTimer.remainingMs = Math.max(
+        0,
+        exerciseTimer.remainingMs + seconds * 1000,
+      );
+    }
+    updateExerciseTimerBar();
+  }
+  function cancelExerciseTimer() {
+    clearTimeout(exerciseTimerEndHandle);
+    exerciseTimer = {
+      active: false,
+      weId: null,
+      durationMs: 0,
+      endAt: 0,
+      remainingMs: 0,
+      running: false,
+    };
+    updateExerciseTimerBar();
+  }
+  function completeSetFromTimer() {
+    if (!exerciseTimer.active || !state.activeWorkout) return;
+    const we = state.activeWorkout.exercises.find(
+      (e) => e.id === exerciseTimer.weId,
+    );
+    if (!we) {
+      cancelExerciseTimer();
+      return;
+    }
+    const set = we.sets.find((s) => !s.completed);
+    if (!set) {
+      toast("All sets already done", "", 2000);
+      cancelExerciseTimer();
+      return;
+    }
+    const elapsed =
+      exerciseTimer.remainingMs <= 0
+        ? exerciseTimer.durationMs
+        : exerciseTimer.durationMs - exerciseTimer.remainingMs;
+    const seconds = Math.max(1, Math.round(elapsed / 1000));
+    if (we.unilateral) {
+      set.durationL = seconds;
+      set.durationR = seconds;
+    } else {
+      set.duration = seconds;
+    }
+    set.completed = true;
+    set.completedAt = new Date().toISOString();
+    set.prefilled = false;
+    save();
+    cancelExerciseTimer();
+    render();
+    toast("Set completed", "ok", 1800);
+  }
+  function buildExerciseTimerHTML() {
+    const size = 240;
+    const r = 108;
+    const stroke = 12;
+    const c = 2 * Math.PI * r;
+    const remaining = exerciseTimerRemainingMs();
+    const pct = clampNum(remaining / (exerciseTimer.durationMs || 1), 0, 1);
+    const offset = c * (1 - pct);
+    const we =
+      state.activeWorkout &&
+      state.activeWorkout.exercises.find((e) => e.id === exerciseTimer.weId);
+    const name = we ? we.exerciseName : "Exercise";
+    const elapsed = exerciseTimer.durationMs - remaining;
+    const completeLabel =
+      remaining <= 0
+        ? "Complete set (" + fmtClock(exerciseTimer.durationMs) + ")"
+        : "Complete set (" + fmtClock(elapsed) + ")";
+    return (
+      '<div class="exercise-timer-card" role="dialog" aria-modal="true" aria-label="Exercise timer">' +
+      '<div class="et-title">' +
+      esc(name) +
+      "</div>" +
+      '<div class="et-ring-wrap">' +
+      '<svg viewBox="0 0 ' +
+      size +
+      " " +
+      size +
+      '" class="et-ring" aria-hidden="true">' +
+      '<circle class="et-ring-bg" cx="' +
+      size / 2 +
+      '" cy="' +
+      size / 2 +
+      '" r="' +
+      r +
+      '" stroke-width="' +
+      stroke +
+      '"/>' +
+      '<circle class="et-ring-fg" cx="' +
+      size / 2 +
+      '" cy="' +
+      size / 2 +
+      '" r="' +
+      r +
+      '" stroke-width="' +
+      stroke +
+      '" stroke-dasharray="' +
+      c +
+      '" stroke-dashoffset="' +
+      offset.toFixed(2) +
+      '" transform="rotate(-90 ' +
+      size / 2 +
+      " " +
+      size / 2 +
+      ')"/>' +
+      "</svg>" +
+      '<div class="et-center">' +
+      '<div class="et-time">' +
+      fmtClock(remaining) +
+      "</div>" +
+      '<div class="et-status">' +
+      (remaining <= 0
+        ? "Time up"
+        : exerciseTimer.running
+          ? "Running"
+          : "Paused") +
+      "</div>" +
+      "</div>" +
+      "</div>" +
+      '<div class="et-actions">' +
+      '<button class="btn" data-action="ex-timer-add" data-secs="-15">−15s</button>' +
+      '<button class="btn" data-action="ex-timer-toggle">' +
+      (exerciseTimer.running ? "Pause" : "Resume") +
+      "</button>" +
+      '<button class="btn" data-action="ex-timer-add" data-secs="15">+15s</button>' +
+      "</div>" +
+      '<button class="btn primary et-complete-btn" data-action="ex-timer-complete">✓ ' +
+      completeLabel +
+      "</button>" +
+      '<button class="btn ghost" data-action="ex-timer-cancel">Cancel timer</button>' +
+      "</div>"
+    );
+  }
+  function refreshExerciseTimerPopup() {
+    const root = $("#exercise-timer-root");
+    if (!root || root.hidden) return;
+    const remaining = exerciseTimerRemainingMs();
+    const pct = clampNum(remaining / (exerciseTimer.durationMs || 1), 0, 1);
+    const r = 108;
+    const c = 2 * Math.PI * r;
+    const offset = c * (1 - pct);
+    const fg = root.querySelector(".et-ring-fg");
+    if (fg) fg.setAttribute("stroke-dashoffset", offset.toFixed(2));
+    const timeEl = root.querySelector(".et-time");
+    if (timeEl) timeEl.textContent = fmtClock(remaining);
+    const statusEl = root.querySelector(".et-status");
+    if (statusEl)
+      statusEl.textContent =
+        remaining <= 0
+          ? "Time up"
+          : exerciseTimer.running
+            ? "Running"
+            : "Paused";
+    const toggleBtn = root.querySelector('[data-action="ex-timer-toggle"]');
+    if (toggleBtn)
+      toggleBtn.textContent = exerciseTimer.running ? "Pause" : "Resume";
+    const completeBtn = root.querySelector('[data-action="ex-timer-complete"]');
+    if (completeBtn) {
+      const elapsed = exerciseTimer.durationMs - remaining;
+      const label =
+        remaining <= 0
+          ? "Complete set (" + fmtClock(exerciseTimer.durationMs) + ")"
+          : "Complete set (" + fmtClock(elapsed) + ")";
+      completeBtn.textContent = "✓ " + label;
+    }
+  }
+  function updateExerciseTimerBar() {
+    const root = $("#exercise-timer-root");
+    if (!root) return;
+    if (!exerciseTimer.active) {
+      if (!root.hidden) {
+        root.hidden = true;
+        root.innerHTML = "";
+      }
+      return;
+    }
+    if (root.hidden || !root.querySelector(".exercise-timer-card")) {
+      root.innerHTML = buildExerciseTimerHTML();
+      root.hidden = false;
+    }
+    refreshExerciseTimerPopup();
+  }
+
+  /* ---- Wake lock (keeps screen on during active workout) ---- */
+  let wakeLock = null;
+  async function requestWakeLock() {
+    if (!("wakeLock" in navigator)) return;
+    if (!state || !state.activeWorkout) return;
+    try {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => {
+        wakeLock = null;
+      });
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  async function releaseWakeLock() {
+    if (wakeLock) {
+      try {
+        await wakeLock.release();
+      } catch (_) {
+        /* ignore */
+      }
+      wakeLock = null;
     }
   }
 
@@ -2005,6 +2426,23 @@
     const useRIR = !!state.settings.useRIR;
     const cols = fields.length + (showWeight ? 1 : 0) + (useRIR ? 1 : 0);
     const completedCount = we.sets.filter((s) => s.completed).length;
+    const isTimed = (we.type || "reps") === "timed";
+    const allSetsDone = we.sets.length && we.sets.every((s) => s.completed);
+    const targetSecs = isTimed
+      ? we.repMax != null
+        ? we.repMax
+        : we.repMin != null
+          ? we.repMin
+          : 60
+      : 0;
+    const timerBtnHtml =
+      isTimed && !allSetsDone
+        ? '<button class="btn small primary" data-action="start-exercise-timer" data-ex="' +
+          we.id +
+          '">▶ Start ' +
+          fmtClock(targetSecs * 1000) +
+          "</button>"
+        : "";
     const mediaSrc = (ex && ex.media) || we.media || "";
     const mediaHtml = mediaSrc
       ? '<div class="ex-media"><img src="' +
@@ -2067,6 +2505,7 @@
       '<button class="btn small" data-action="add-set" data-ex="' +
       we.id +
       '">+ Set</button>' +
+      timerBtnHtml +
       '<button class="btn small" data-action="start-rest" data-ex="' +
       we.id +
       '">Rest ' +
@@ -2086,11 +2525,21 @@
 
     const inputs = fields
       .map((f) => {
+        if (isDurationField(f)) {
+          return durationSetFieldHTML(set, f, index, set.prefilled);
+        }
         const val = set[f] == null ? "" : set[f];
+        const label = fieldLabel(f);
         return (
+          '<div class="set-field" data-for="' +
+          f +
+          '">' +
+          '<span class="set-field-label">' +
+          esc(label) +
+          "</span>" +
           '<div class="stepper">' +
           '<button type="button" class="stepper-btn" data-step="-1" tabindex="-1" aria-label="Decrease ' +
-          esc(fieldLabel(f)) +
+          esc(label) +
           '">−</button>' +
           '<input type="number" inputmode="decimal" min="0" step="1" class="set-input' +
           (set.prefilled && val !== "" ? " prefilled" : "") +
@@ -2101,46 +2550,48 @@
           val +
           '"' +
           ' placeholder="—" aria-label="' +
-          esc(fieldLabel(f)) +
+          esc(label) +
           " set " +
           (index + 1) +
           '">' +
           '<button type="button" class="stepper-btn" data-step="1" tabindex="-1" aria-label="Increase ' +
-          esc(fieldLabel(f)) +
+          esc(label) +
           '">+</button>' +
-          "</div>"
+          "</div></div>"
         );
       })
       .join("");
 
     const weightInput = showWeight
-      ? '<div class="stepper">' +
+      ? '<div class="set-field" data-for="weight">' +
+        '<span class="set-field-label">' +
+        esc(unitLabel()) +
+        "</span>" +
+        '<div class="stepper">' +
         '<button type="button" class="stepper-btn" data-step="-0.5" tabindex="-1" aria-label="Decrease load">−</button>' +
         '<input type="number" inputmode="decimal" min="0" step="0.5" class="set-input' +
         (set.prefilled && set.weight != null ? " prefilled" : "") +
-        '"' +
-        ' data-field="weight" value="' +
+        '" data-field="weight" value="' +
         (set.weight == null ? "" : kgToDisplay(set.weight)) +
-        '"' +
-        ' placeholder="0" aria-label="External load set ' +
+        '" placeholder="0" aria-label="External load set ' +
         (index + 1) +
         '">' +
         '<button type="button" class="stepper-btn" data-step="0.5" tabindex="-1" aria-label="Increase load">+</button>' +
-        "</div>"
+        "</div></div>"
       : "";
 
     const rirInput = useRIR
-      ? '<div class="stepper">' +
+      ? '<div class="set-field" data-for="rir">' +
+        '<span class="set-field-label">RIR</span>' +
+        '<div class="stepper">' +
         '<button type="button" class="stepper-btn" data-step="-1" tabindex="-1" aria-label="Decrease RIR">−</button>' +
-        '<input type="number" inputmode="numeric" min="0" max="10" step="1" class="set-input"' +
-        ' data-field="rir" value="' +
+        '<input type="number" inputmode="numeric" min="0" max="10" step="1" class="set-input" data-field="rir" value="' +
         (set.rir == null ? "" : set.rir) +
-        '"' +
-        ' placeholder="–" aria-label="Reps in reserve set ' +
+        '" placeholder="–" aria-label="Reps in reserve set ' +
         (index + 1) +
         '">' +
         '<button type="button" class="stepper-btn" data-step="1" tabindex="-1" aria-label="Increase RIR">+</button>' +
-        "</div>"
+        "</div></div>"
       : "";
 
     return (
@@ -2163,11 +2614,9 @@
       we.id +
       '" data-set="' +
       set.id +
-      '"' +
-      ' aria-pressed="' +
+      '" aria-pressed="' +
       (set.completed ? "true" : "false") +
-      '"' +
-      ' aria-label="Mark set ' +
+      '" aria-label="Mark set ' +
       (index + 1) +
       " " +
       (set.completed ? "incomplete" : "complete") +
@@ -2333,6 +2782,7 @@
     save(true);
     location.hash = "#/workout";
     if (location.hash === "#/workout") render();
+    requestWakeLock();
     toast("Workout started", "ok", 1800);
   }
 
@@ -2599,6 +3049,7 @@
     undoStack = [];
     hideUndoBar();
     skipRest();
+    releaseWakeLock();
     save(true);
     if (window.Cloud) {
       window.Cloud.pushWorkout(w).catch(function (err) {
@@ -2638,6 +3089,7 @@
           undoStack = [];
           hideUndoBar();
           skipRest();
+          releaseWakeLock();
           save(true);
           closeModal();
           location.hash = "#/dashboard";
@@ -2834,9 +3286,10 @@
 
   function openAddExerciseModal() {
     if (!routineDraft) return;
-    const options = state.exercises
+    const sortedEx = state.exercises
       .slice()
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const options = sortedEx
       .map(
         (e) =>
           '<option value="' +
@@ -2848,6 +3301,29 @@
           "</option>",
       )
       .join("");
+    const firstEx = sortedEx[0] || null;
+    const firstIsTimed = firstEx && firstEx.type === "timed";
+
+    function targetsHtml(isTimed) {
+      if (isTimed) {
+        return (
+          '<label class="field"><span>Target min</span>' +
+          durationFieldForModal("add-ex-min", null) +
+          "</label>" +
+          '<label class="field"><span>Target max</span>' +
+          durationFieldForModal("add-ex-max", null) +
+          "</label>"
+        );
+      }
+      return (
+        '<label class="field"><span>Target min</span><input type="number" id="add-ex-min" min="0" value="' +
+        state.settings.defaultRepMin +
+        '"></label>' +
+        '<label class="field"><span>Target max</span><input type="number" id="add-ex-max" min="0" value="' +
+        state.settings.defaultRepMax +
+        '"></label>'
+      );
+    }
 
     openModal({
       title: "Add exercise",
@@ -2858,25 +3334,37 @@
         '<label class="field"><span>Sets</span><input type="number" id="add-ex-sets" min="1" max="20" value="' +
         state.settings.defaultSets +
         '"></label>' +
-        '<div class="grid-2">' +
-        '<label class="field"><span>Target min</span><input type="number" id="add-ex-min" min="0" value="' +
-        state.settings.defaultRepMin +
-        '"></label>' +
-        '<label class="field"><span>Target max</span><input type="number" id="add-ex-max" min="0" value="' +
-        state.settings.defaultRepMax +
-        '"></label>' +
+        '<div class="grid-2" id="add-ex-targets">' +
+        targetsHtml(firstIsTimed) +
         "</div>" +
         '<label class="field"><span>Rest (seconds)</span><input type="number" id="add-ex-rest" min="0" max="900" value="' +
         state.settings.defaultRest +
         '"></label>' +
-        '<p class="muted tiny-text">For timed exercises the target values are seconds.</p>',
+        '<p class="muted tiny-text">For timed exercises the target is set in minutes:seconds.</p>',
       footer:
         '<button class="btn" data-action="close-modal">Cancel</button>' +
         '<button class="btn primary" id="add-ex-confirm">Add</button>',
       onMount(el) {
+        const select = $("#add-ex-select", el);
+        select.addEventListener("change", () => {
+          const ex = getExercise(select.value);
+          const timed = ex && ex.type === "timed";
+          const targets = $("#add-ex-targets", el);
+          if (targets) targets.innerHTML = targetsHtml(timed);
+        });
         $("#add-ex-confirm", el).addEventListener("click", () => {
-          const exerciseId = $("#add-ex-select", el).value;
+          const exerciseId = select.value;
           if (!exerciseId) return;
+          const ex = getExercise(exerciseId);
+          const timed = ex && ex.type === "timed";
+          let repMin, repMax;
+          if (timed) {
+            repMin = readDurationField(el, "add-ex-min");
+            repMax = readDurationField(el, "add-ex-max");
+          } else {
+            repMin = numOrNull($("#add-ex-min", el).value);
+            repMax = numOrNull($("#add-ex-max", el).value);
+          }
           routineDraft.exercises.push({
             id: uid("rx"),
             exerciseId: exerciseId,
@@ -2885,8 +3373,8 @@
               1,
               20,
             ),
-            repMin: numOrNull($("#add-ex-min", el).value),
-            repMax: numOrNull($("#add-ex-max", el).value),
+            repMin: repMin,
+            repMax: repMax,
             targetRIR: null,
             rest: clampNum(
               parseInt($("#add-ex-rest", el).value, 10) || 90,
@@ -2909,6 +3397,17 @@
     const ex = getExercise(rx.exerciseId);
     const isTimed = ex && ex.type === "timed";
 
+    const minHtml = isTimed
+      ? durationFieldForModal("rx-min", rx.repMin)
+      : '<input type="number" id="rx-min" min="0" value="' +
+        (rx.repMin == null ? "" : rx.repMin) +
+        '">';
+    const maxHtml = isTimed
+      ? durationFieldForModal("rx-max", rx.repMax)
+      : '<input type="number" id="rx-max" min="0" value="' +
+        (rx.repMax == null ? "" : rx.repMax) +
+        '">';
+
     openModal({
       title: ex ? ex.name : "Exercise",
       body:
@@ -2916,18 +3415,12 @@
         rx.sets +
         '"></label>' +
         '<div class="grid-2">' +
-        '<label class="field"><span>Target min' +
-        (isTimed ? " (s)" : "") +
-        "</span>" +
-        '<input type="number" id="rx-min" min="0" value="' +
-        (rx.repMin == null ? "" : rx.repMin) +
-        '"></label>' +
-        '<label class="field"><span>Target max' +
-        (isTimed ? " (s)" : "") +
-        "</span>" +
-        '<input type="number" id="rx-max" min="0" value="' +
-        (rx.repMax == null ? "" : rx.repMax) +
-        '"></label>' +
+        '<label class="field"><span>Target min</span>' +
+        minHtml +
+        "</label>" +
+        '<label class="field"><span>Target max</span>' +
+        maxHtml +
+        "</label>" +
         "</div>" +
         '<div class="grid-2">' +
         '<label class="field"><span>Target RIR (optional)</span>' +
@@ -2949,8 +3442,13 @@
       onMount(el) {
         $("#rx-save", el).addEventListener("click", () => {
           rx.sets = clampNum(parseInt($("#rx-sets", el).value, 10) || 3, 1, 20);
-          rx.repMin = numOrNull($("#rx-min", el).value);
-          rx.repMax = numOrNull($("#rx-max", el).value);
+          if (isTimed) {
+            rx.repMin = readDurationField(el, "rx-min");
+            rx.repMax = readDurationField(el, "rx-max");
+          } else {
+            rx.repMin = numOrNull($("#rx-min", el).value);
+            rx.repMax = numOrNull($("#rx-max", el).value);
+          }
           rx.targetRIR = numOrNull($("#rx-rir", el).value);
           rx.rest = clampNum(
             parseInt($("#rx-rest", el).value, 10) || 0,
@@ -3309,8 +3807,87 @@
         const fields = valueFields(we);
         const cols = fields.length + (showWeight ? 1 : 0) + (useRIR ? 1 : 0);
         const rows = we.sets
-          .map(
-            (s, i) =>
+          .map((s, i) => {
+            const fieldHtml = fields
+              .map((f) => {
+                if (isDurationField(f)) {
+                  const total = s[f];
+                  let mm = "",
+                    ss = "";
+                  if (total != null && Number.isFinite(total)) {
+                    const t = Math.max(0, Math.round(total));
+                    mm = String(Math.floor(t / 60));
+                    ss = String(t % 60).padStart(2, "0");
+                  }
+                  const label =
+                    f === "duration"
+                      ? "Duration"
+                      : f === "durationL"
+                        ? "Duration L"
+                        : "Duration R";
+                  return (
+                    '<div class="set-field set-field-duration" data-for="' +
+                    f +
+                    '">' +
+                    '<span class="set-field-label">' +
+                    esc(label) +
+                    "</span>" +
+                    '<div class="duration-input">' +
+                    '<input type="number" inputmode="numeric" min="0" max="999" class="set-input" data-field="' +
+                    f +
+                    '-min" value="' +
+                    mm +
+                    '" placeholder="0" aria-label="' +
+                    esc(label) +
+                    ' minutes">' +
+                    '<span class="duration-sep" aria-hidden="true">:</span>' +
+                    '<input type="number" inputmode="numeric" min="0" max="59" class="set-input" data-field="' +
+                    f +
+                    '-sec" value="' +
+                    ss +
+                    '" placeholder="00" aria-label="' +
+                    esc(label) +
+                    ' seconds">' +
+                    "</div></div>"
+                  );
+                }
+                return (
+                  '<div class="set-field" data-for="' +
+                  f +
+                  '">' +
+                  '<span class="set-field-label">' +
+                  esc(fieldLabel(f)) +
+                  "</span>" +
+                  '<input type="number" min="0" step="any" class="set-input" data-field="' +
+                  f +
+                  '" value="' +
+                  (s[f] == null ? "" : s[f]) +
+                  '" aria-label="' +
+                  esc(fieldLabel(f)) +
+                  '">' +
+                  "</div>"
+                );
+              })
+              .join("");
+            const weightHtml = showWeight
+              ? '<div class="set-field" data-for="weight">' +
+                '<span class="set-field-label">' +
+                esc(unitLabel()) +
+                "</span>" +
+                '<input type="number" min="0" step="any" class="set-input" data-field="weight" value="' +
+                (s.weight == null ? "" : kgToDisplay(s.weight)) +
+                '" aria-label="Load">' +
+                "</div>"
+              : "";
+            const rirHtml = useRIR
+              ? '<div class="set-field" data-for="rir">' +
+                '<span class="set-field-label">RIR</span>' +
+                '<input type="number" min="0" max="10" step="1" class="set-input" data-field="rir" value="' +
+                (s.rir == null ? "" : s.rir) +
+                '" aria-label="RIR">' +
+                "</div>"
+              : "";
+            return (
               '<div class="set-grid set-row' +
               (s.completed ? " done" : "") +
               '" data-set-id="' +
@@ -3322,41 +3899,22 @@
               '<div class="set-fields" style="--cols:' +
               cols +
               '">' +
-              fields
-                .map(
-                  (f) =>
-                    '<input type="number" min="0" step="any" class="set-input" data-field="' +
-                    f +
-                    '" value="' +
-                    (s[f] == null ? "" : s[f]) +
-                    '" aria-label="' +
-                    esc(fieldLabel(f)) +
-                    '">',
-                )
-                .join("") +
-              (showWeight
-                ? '<input type="number" min="0" step="any" class="set-input" data-field="weight" value="' +
-                  (s.weight == null ? "" : kgToDisplay(s.weight)) +
-                  '" aria-label="Load">'
-                : "") +
-              (useRIR
-                ? '<input type="number" min="0" max="10" step="1" class="set-input" data-field="rir" value="' +
-                  (s.rir == null ? "" : s.rir) +
-                  '" aria-label="RIR">'
-                : "") +
+              fieldHtml +
+              weightHtml +
+              rirHtml +
               "</div>" +
               '<button class="set-check" data-action="toggle-set-history" data-set="' +
               s.id +
               '" data-ex="' +
               we.id +
-              '"' +
-              ' aria-pressed="' +
+              '" aria-pressed="' +
               (s.completed ? "true" : "false") +
               '">' +
               (s.completed ? ICON_CHECK : ICON_CIRCLE) +
               "</button>" +
-              "</div>",
-          )
+              "</div>"
+            );
+          })
           .join("");
 
         return (
@@ -4172,19 +4730,47 @@
     const set = we.sets.find((s) => s.id === row.dataset.setId);
     if (!set) return;
 
-    const field = input.dataset.field;
+    const rawField = input.dataset.field;
+    if (/-min$/.test(rawField) || /-sec$/.test(rawField)) {
+      const baseField = rawField.replace(/-min$|-sec$/, "");
+      const container = input.closest(".duration-input");
+      if (!container) return;
+      const minEl = container.querySelector(
+        '[data-field="' + baseField + '-min"]',
+      );
+      const secEl = container.querySelector(
+        '[data-field="' + baseField + '-sec"]',
+      );
+      if (!minEl || !secEl) return;
+      let mm = parseInt(minEl.value, 10);
+      let ss = parseInt(secEl.value, 10);
+      if (!Number.isFinite(mm) || mm < 0) mm = 0;
+      if (!Number.isFinite(ss) || ss < 0) ss = 0;
+      if (ss > 59) {
+        ss = 59;
+        secEl.value = "59";
+      }
+      const bothEmpty = minEl.value.trim() === "" && secEl.value.trim() === "";
+      set[baseField] = bothEmpty ? null : mm * 60 + ss;
+      set.prefilled = false;
+      minEl.classList.remove("prefilled");
+      secEl.classList.remove("prefilled");
+      save();
+      return;
+    }
+
     let value = input.value.trim() === "" ? null : numOrNull(input.value);
     if (value != null && value < 0) {
       value = 0;
       input.value = "0";
     }
 
-    if (field === "weight") {
+    if (rawField === "weight") {
       set.weight = value == null ? null : displayToKg(value);
-    } else if (field === "rir") {
+    } else if (rawField === "rir") {
       set.rir = value == null ? null : clampNum(value, 0, 10);
     } else {
-      set[field] = value;
+      set[rawField] = value;
     }
     set.prefilled = false;
     input.classList.remove("prefilled");
@@ -4396,6 +4982,26 @@
         );
         return;
       }
+      case "start-exercise-timer": {
+        const we = findWE(el.dataset.ex);
+        if (!we) return;
+        const secs =
+          we.repMax != null ? we.repMax : we.repMin != null ? we.repMin : 60;
+        startExerciseTimer(we.id, secs);
+        return;
+      }
+      case "ex-timer-toggle":
+        toggleExerciseTimerPause();
+        return;
+      case "ex-timer-add":
+        addExerciseTimerTime(parseInt(el.dataset.secs, 10) || 0);
+        return;
+      case "ex-timer-complete":
+        completeSetFromTimer();
+        return;
+      case "ex-timer-cancel":
+        cancelExerciseTimer();
+        return;
       case "toggle-pause":
         togglePauseWorkout();
         return;
@@ -4622,6 +5228,10 @@
       handleAction(actionEl.dataset.action, actionEl);
     });
 
+    document.addEventListener("pointerdown", primeAudio, {
+      once: true,
+      passive: true,
+    });
     document.addEventListener("input", onInput);
     document.addEventListener("change", onActionChange);
 
@@ -4694,12 +5304,16 @@
 
     window.addEventListener("pagehide", flushSave);
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden") flushSave();
-      else {
+      if (document.visibilityState === "hidden") {
+        flushSave();
+      } else {
         updateTimerBar();
+        updateExerciseTimerBar();
         const el = document.getElementById("wo-elapsed");
-        if (el && state.activeWorkout)
+        if (el && state.activeWorkout) {
           el.textContent = fmtClock(workoutElapsedMs(state.activeWorkout));
+          requestWakeLock();
+        }
       }
     });
 

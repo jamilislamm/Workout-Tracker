@@ -768,6 +768,19 @@ input[type="number"] {
   padding: 11px 0;
   border-top: 1px solid var(--border);
 }
+.list-item .btn-row {
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+.list-item .li-main {
+  min-width: 0;
+  flex: 1 1 0;
+}
+.list-item .li-title,
+.list-item .li-sub {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .list-item:first-child {
   border-top: none;
 }
@@ -1462,4 +1475,393 @@ table.data td.mono {
 }
 .set-row.done .stepper-btn {
   background: transparent;
+}
+/* ============================================================
+   Mobile overrides + Duration input + Exercise timer
+   ============================================================ */
+
+/* ---- Duration compound input (desktop + mobile) ---- */
+.duration-input {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 0 4px;
+  min-width: 0;
+}
+.duration-input input {
+  border: none;
+  background: transparent;
+  text-align: center;
+  min-height: 42px;
+  padding: 0 2px;
+  font-size: 0.95rem;
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.duration-input input:focus {
+  outline: none;
+}
+.duration-input input::-webkit-outer-spin-button,
+.duration-input input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.duration-input .duration-sep {
+  font-weight: 700;
+  color: var(--muted);
+  flex: 0 0 auto;
+  padding: 0 1px;
+}
+.duration-input:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+
+/* ---- Set field wrapper (base = desktop) ---- */
+.set-field {
+  min-width: 0;
+  display: block;
+}
+.set-field-label {
+  display: none;
+}
+
+/* ---- Exercise timer overlay ---- */
+.exercise-timer-root {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  background: rgba(4, 8, 13, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(4px);
+}
+.exercise-timer-root[hidden] {
+  display: none !important;
+}
+.exercise-timer-card {
+  background: var(--surface);
+  border: 2px solid var(--accent);
+  border-radius: 22px;
+  padding: 18px;
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.et-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-align: center;
+  color: var(--text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.et-ring-wrap {
+  position: relative;
+  width: 200px;
+  height: 200px;
+}
+.et-ring {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.et-ring-bg {
+  fill: none;
+  stroke: var(--surface-3);
+}
+.et-ring-fg {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.3s linear;
+}
+.et-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.et-time {
+  font-size: 2.2rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+.et-status {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 700;
+}
+.et-actions {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+.et-actions .btn {
+  flex: 1;
+  min-height: 42px;
+  padding: 0 6px;
+  font-size: 0.8rem;
+}
+.et-complete-btn {
+  width: 100%;
+  min-height: 46px;
+  font-size: 0.95rem;
+}
+
+/* ---- Mobile overrides ---- */
+@media (max-width: 640px) {
+  input[type="text"],
+  input[type="number"],
+  input[type="date"],
+  input[type="email"],
+  input[type="password"],
+  select,
+  textarea,
+  .set-input,
+  .stepper .set-input,
+  .duration-input input {
+    font-size: 16px;
+  }
+
+  .view {
+    padding-bottom: calc(
+      var(--tabbar-h) + 34px + env(safe-area-inset-bottom, 0px)
+    );
+  }
+  .modal-body {
+    padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Set row: compact horizontal with steppers */
+  .set-head-row {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) 40px;
+    gap: 4px;
+    padding: 8px 0 3px;
+    font-size: 0.58rem;
+  }
+  .set-head-row .set-fields {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 3px;
+  }
+  .set-head-row .set-fields > span {
+    flex: 1 1 0;
+    min-width: 0;
+    text-align: center;
+  }
+
+  .set-grid {
+    grid-template-columns: 20px minmax(0, 1fr) 40px;
+    gap: 4px;
+    padding: 4px 0;
+    align-items: center;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 0;
+    margin-bottom: 0;
+  }
+  .set-row {
+    padding: 4px 0;
+    border-top: 1px solid var(--border);
+  }
+  .set-row.done {
+    background: var(--accent-dim);
+    border-radius: 8px;
+    padding: 4px 6px;
+    margin: 0 -6px;
+  }
+
+  .set-idx {
+    font-size: 0.7rem;
+    padding: 0;
+    text-align: center;
+  }
+
+  .set-fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    align-items: center;
+    min-width: 0;
+  }
+  .set-field {
+    flex: 1 1 0;
+    min-width: 58px;
+    display: block;
+  }
+  .set-field-label {
+    display: none;
+  }
+
+  /* Steppers: back and compact */
+  .stepper-btn {
+    display: inline-flex;
+    width: 20px;
+    min-width: 20px;
+    font-size: 0.85rem;
+  }
+  .stepper {
+    border-radius: 8px;
+  }
+  .stepper .set-input {
+    min-width: 0;
+    min-height: 40px;
+    padding: 0;
+    font-size: 16px;
+    text-align: center;
+  }
+
+  .set-check {
+    width: 40px;
+    height: 40px;
+  }
+
+  .duration-input {
+    padding: 0 1px;
+    border-radius: 8px;
+  }
+  .duration-input input {
+    min-height: 40px;
+    padding: 0 1px;
+    font-size: 16px;
+  }
+
+  /* Cards */
+  .ex-card {
+    scroll-margin-top: 120px;
+    padding: 12px;
+  }
+  .ex-title h2 {
+    font-size: 0.96rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+  .ex-media img {
+    max-height: 200px;
+  }
+
+  /* Slide nav */
+  .slide-nav {
+    gap: 6px;
+  }
+  .slide-nav-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 1.3rem;
+  }
+  .slide-dot {
+    width: 6px;
+    height: 6px;
+  }
+  .slide-dots {
+    gap: 4px;
+  }
+
+  /* Hero / summary */
+  .hero-title {
+    font-size: 1.45rem;
+  }
+  .hero-card {
+    padding: 16px;
+  }
+  .summary-grid {
+    gap: 8px;
+  }
+  .summary-box .v {
+    font-size: 1.05rem;
+  }
+
+  /* Toast + buttons */
+  .toast-root {
+    top: calc(var(--topbar-h) + 8px);
+  }
+  .btn.small {
+    min-height: 42px;
+  }
+  .btn.tiny {
+    min-height: 40px;
+    padding: 0 12px;
+  }
+
+  /* Rest popup */
+  .rest-popup-root {
+    max-width: 300px;
+    bottom: calc(var(--tabbar-h) + 8px + env(safe-area-inset-bottom, 0px));
+  }
+  .rest-card {
+    padding: 12px 10px 10px;
+    gap: 10px;
+  }
+  .rest-ring-wrap {
+    width: 170px;
+    height: 170px;
+  }
+  .rest-time {
+    font-size: 1.9rem;
+  }
+  .rest-actions .btn {
+    min-height: 40px;
+  }
+
+  /* Workout sticky */
+  .wo-sticky {
+    padding: 8px 12px 6px;
+  }
+  .wo-sticky-timer {
+    font-size: 1.3rem;
+  }
+
+  /* Chart */
+  .chart .axis,
+  .chart .val {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 380px) {
+  .summary-grid {
+    grid-template-columns: 1fr;
+  }
+  .hero-title {
+    font-size: 1.3rem;
+  }
+  .rest-ring-wrap {
+    width: 150px;
+    height: 150px;
+  }
+  .rest-time {
+    font-size: 1.7rem;
+  }
+  .et-ring-wrap {
+    width: 170px;
+    height: 170px;
+  }
+  .et-time {
+    font-size: 1.9rem;
+  }
 }
